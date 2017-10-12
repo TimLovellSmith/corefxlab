@@ -8,14 +8,15 @@ Before anything is proposed, let's start with what can be prioritized...
 
 We want to be able to support all of the following configurations:
 
-1. User data *is separate* from the priority (two physical instances).
-2. User data *contains* the priority (as one or more properties).
+1. User data *is separate* from the priority (two physical instances). 
+2. User data *contains* the priority (as one or more properties). 
 3. User data *is* the priority (implements `IComparable<T>`).
 4. Rare case: priority is obtainable via some other logic (resides in an object
 different from the user data).
 
 In this entire document, I will refer to the cases above with **(1)**, **(2)**,
-**(3)**, and **(4)**.
+**(3)**, and **(4)**. We will also refer to case **(1)** as 'extrinsic' priority, 
+and all the other cases as 'intrinsic' priority.
 
 ### Ideal solution
 
@@ -34,101 +35,8 @@ given element.
 In order to be able to consume all of that, we need two types of priority
 queues:
 
-* `PriorityQueue<T>`,
-* `PriorityQueue<TElement, TPriority>`.
-
-## `PriorityQueue<T>`
-
-```csharp
-public class PriorityQueue<T> : IQueue<T>
-{
-    public PriorityQueue();
-    public PriorityQueue(IComparer<T> comparer);
-    public PriorityQueue(IEnumerable<T> collection);
-    public PriorityQueue(IEnumerable<T> collection, IComparer<T> comparer);
-
-    public IComparer<T> Comparer { get; }
-    public int Count { get; }
-
-    public bool IsEmpty { get; }
-    public void Clear();
-    public bool Contains(T element);
-
-    public void Enqueue(T element);
-
-    public T Peek();
-    public T Dequeue();
-    public bool Remove(T element);
-
-    public bool TryPeek(out T element);
-    public bool TryDequeue(out T element);
-
-    public IEnumerator<T> GetEnumerator();
-    IEnumerator IEnumerable.GetEnumerator();
-
-    public struct Enumerator : IEnumerator<T>
-    {
-        public T Current { get; }
-        object IEnumerator.Current { get; }
-        public bool MoveNext() => throw new NotImplementedException();
-        public void Reset() => throw new NotImplementedException();
-        public void Dispose() => throw new NotImplementedException();
-    }
-}
-```
-
-### Scenarios
-
-#### (2)
-
-Custom class with a priority inside:
-
-```csharp
-public class MyClass
-{
-	public double Priority { get; }
-}
-```
-
-The user defines their own comparer, for example:
-
-```csharp
-var comparer = Comparer<MyClass>.Create((a, b) =>
-{
-    return a.Priority.CompareTo(b.Priority);
-});
-```
-
-And simply uses our priority queue:
-
-```csharp
-var queue = new PriorityQueue<MyClass>(comparer);
-
-queue.Enqueue(new MyClass());
-```
-
-#### (3)
-
-Already comparable type:
-
-```csharp
-public class MyClass : IComparable<MyClass>
-{
-    public int CompareTo(MyClass other) => /* some logic */
-}
-```
-
-Then simply call the default constructor (`Comparer<T>.Default` is assumed):
-
-```csharp
-var queue = new PriorityQueue<MyClass>();
-```
-
-#### (4)
-
-Priority for `MyClass` is obtainable from some other objects, for example a
-dictionary. It is done analogically to **(2)**, simply by some custom logic in
-the comparer.
+* `PriorityQueue<TElement, TPriority>` (this handles the extrinsic priority scenario, **(1)**)
+* `PriorityQueue<T>`, (this handles all the intrinsic priority scenarios)
 
 ## `PriorityQueue<TElement, TPriority>`
 
@@ -181,7 +89,7 @@ public class PriorityQueue<TElement, TPriority> :
 }
 ```
 
-### Scenario
+### Scenarios Covered
 
 The user has some data and priority separated — **(1)**:
 
@@ -194,9 +102,120 @@ So simply:
 
 ```csharp
 var queue = new PriorityQueue<string, int>();
-
 queue.Enqueue(userData, priority);
+...
+// something changed, so we need to update priority
+queue.UpdatePriority(userData, newPriority);
 ```
+
+## `PriorityQueue<T>`
+
+```csharp
+public class PriorityQueue<T> : IQueue<T>
+{
+    public PriorityQueue();
+    public PriorityQueue(IComparer<T> comparer);
+    public PriorityQueue(IEnumerable<T> collection);
+    public PriorityQueue(IEnumerable<T> collection, IComparer<T> comparer);
+
+    public IComparer<T> Comparer { get; }
+    public int Count { get; }
+
+    public bool IsEmpty { get; }
+    public void Clear();
+    public bool Contains(T element);
+
+    public void Enqueue(T element);
+    public void NotifyPriorityChanged(T element);
+    public void NotifyPriorityChanged(IEnumerable<T> elements);
+
+    public T Peek();
+    public T Dequeue();
+    public bool Remove(T element);
+
+    public bool TryPeek(out T element);
+    public bool TryDequeue(out T element);
+
+    public IEnumerator<T> GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator();
+
+    public struct Enumerator : IEnumerator<T>
+    {
+        public T Current { get; }
+        object IEnumerator.Current { get; }
+        public bool MoveNext() => throw new NotImplementedException();
+        public void Reset() => throw new NotImplementedException();
+        public void Dispose() => throw new NotImplementedException();
+    }
+}
+```
+
+### Scenarios Covered
+
+#### (2)
+
+Custom class with a priority inside:
+
+```csharp
+public class MyClass
+{
+	public double Priority { get; }
+}
+```
+
+The user defines their own comparer, for example:
+
+```csharp
+var comparer = Comparer<MyClass>.Create((a, b) =>
+{
+    return a.Priority.CompareTo(b.Priority);
+});
+```
+
+And simply uses our priority queue:
+
+```csharp
+var queue = new PriorityQueue<MyClass>(comparer);
+
+var x = new MyClass();
+queue.Enqueue(x);
+...
+// something changed, so we need to both update the priority, and then tell the queue about the priority change, otherwise priority queue order invariants will be broken
+x.Priority = newPriority;
+queue.NotifyPriorityChanged(x);
+
+```
+
+#### (3)
+
+Already comparable type:
+
+```csharp
+public class MyClass : IComparable<MyClass>
+{
+    public int CompareTo(MyClass other) => /* some logic */
+}
+```
+
+Then simply call the default constructor (`Comparer<T>.Default` is assumed):
+
+```csharp
+var queue = new PriorityQueue<MyClass>();
+```
+
+_If_ the object is mutable, and any property of the object changes which would cause the Comparer to start returning different results, then it is necessary to call `NotifyPriorityChanged()` so that the priority queue can be kept consistent;
+
+```csharp
+mutatedElement.SomeProperty = newValueWhichAffectsComparison;
+queue.NotifyPriorityChanged(mutatedElement);
+```
+
+
+#### (4)
+
+Priority for `MyClass` is obtainable from some other objects, for example a
+dictionary. It is done analogically to **(2)**, simply by some custom logic in
+the comparer. If the state of other objects (e.g. the dictionary) changes in a way which affects priority, then again it is necessary to notify the priority queue of the change.
 
 ## Notes
 
@@ -207,6 +226,13 @@ To both priority queues:
 * `TryPeek` and `TryDequeue` only return false.
 * `Remove` returns false if the element to remove is not found.
 * `Remove` removes only the first occurrence of the specified element.
+
+_If_ the object's priority is mutable, and any property of the object changes which would cause the Comparer to start returning different results for any objecst, then you must call `NotifyPriorityChanged()` passing all affected elements, so that the priority queue can be kept consistent;
+
+```csharp
+mutatedElement.SomeProperty = newValueWhichAffectsComparison;
+queue.NotifyPriorityChanged(mutatedElement);
+```
 
 ## `IQueue<T>`
 
@@ -222,7 +248,6 @@ public interface IQueue<T> :
     int Count { get; }
 
     void Clear();
-    bool IsEmpty { get; }
 
     void Enqueue(T element);
 
@@ -236,19 +261,19 @@ public interface IQueue<T> :
 
 ### Notes
 
-* Only `PriorityQueue<T>` would implement this interface.
-* `IsEmpty` needs to be added to `Queue<T>`.
+* Only `PriorityQueue<T>` would implement this interface. (Why?)
+* `IsEmpty` does not need to be a member of `IQueue<T>`, since you can just use Enumerable.Empty().
 
+2. In priority queues, there is `Peek`, and `TryPeek`. There is also `Dequeue` and
+`TryDequeue`. There does not need to be `Remove` and `TryRemove` following the same
+pattern - consistent with e.g. ISet<T>, Remove can always return a bool with no other returned value. Whereas the Peek/TryPeek pattern and Remove/TryRemove are a way of working around the problem of having a conditionally returned value.
 
 ## Open questions
 
 1. Do we really need `IQueue<T>`?
-2. In priority queues, we have `Peek`, and `TryPeek`. There is `Dequeue` and
-`TryDequeue`. Should there also be `Remove` and `TryRemove` following the same
-pattern or only `bool Remove(T)` (as it is now)?
-3. Do we want to be able to remove and update priorities of elements in O(log n)
-instead of O(n)? Also, to be able to do conduct such operations on unique nodes
-(instead of *whichever is found first*)? This would require us to use some sort
+2. What are  the performance guarantee that UpdatePriority and NotifyPriorityChanged should give?
+3. Should Remove, and UpdatePriority be targetable at unique nodes
+instead of *whichever is found first* using some kind of handle? This would require us to use some sort
 of a handle:
 
 ```csharp
@@ -258,6 +283,11 @@ void Update(object handle, TPriority priority);
 
 void Remove(object handle);
 ```
+
+It might be unnecessary because if the elements are 'equal' according to the equality comparer used for searching, that should imply it is fine to remove either one of them. So should there e.g. be constructor overloadsfor specifying a custom equality comparer for that purpose? This is confusing, because the priorityComparer and equalityComparer are comparing totally different things (elements, that have priority on one hand, versus priorities on the other hand!!)
+
+    public PriorityQueue(IEnumerable<T> collection, IComparer<T> comparer, IEqualityComparer<T> equalityComparer);
+
 
 4. Do we want to provide an interface for priority queues in the future? If we
 release two `PriorityQueue` classes, it may be hard to create an interface for
